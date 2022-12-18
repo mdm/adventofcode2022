@@ -70,76 +70,62 @@ func parse() (valves map[string]valve) {
 	return valves
 }
 
-func stateHash(location string, open map[string]bool) string {
+func stateHash(location string, minutes int, open map[string]int) string {
 	var ids []string
-	for id, check := range open {
-		if check {
-			ids = append(ids, id)
-		}
+	for id, _ := range open {
+		ids = append(ids, id)
 	}
 
 	sort.Strings(ids)
 
-	hash := location
+	hash := location + fmt.Sprint(minutes)
 	for _, id := range ids {
-		hash += id
+		hash += id + fmt.Sprint(open[id])
 	}
 
 	return hash
 }
 
-func findMaxFlow(valves map[string]valve, location string, open map[string]bool, minutes int, memo map[string]bool) int {
+func findMaxFlow(valves map[string]valve, location string, open map[string]int, minutes int, memo map[string]int) int {
+	m, ok := memo[stateHash(location, minutes, open)]
+	if ok {
+		return m
+	}
+
 	if minutes == 30 {
-		// fmt.Println(open)
+		memo[stateHash(location, minutes, open)] = 0
 		return 0
 	}
 
 	max := 0
 
-	if !open[location] && valves[location].flow > 0 {
-		// fmt.Println("open", location)
-		open[location] = true
-		// fmt.Println(location, minutes)
+	_, opened := open[location]
+	if !opened && valves[location].flow > 0 {
+		open[location] = minutes
 		max = findMaxFlow(valves, location, open, minutes+1, memo)
-		open[location] = false
-	} else {
-		for id, check := range open {
-			if check {
-				max += (30 - minutes - 1) * valves[id].flow
-			}
-		}
+		delete(open, location)
 	}
 
-	// fmt.Println("skip", location)
 	for _, next := range valves[location].tunnels {
-		flow := 0
-		if memo[stateHash(next, open)] {
-			continue
-		}
-
-		memo[stateHash(next, open)] = true
-		flow = findMaxFlow(valves, next, open, minutes+1, memo)
+		flow := findMaxFlow(valves, next, open, minutes+1, memo)
 
 		if flow > max {
 			max = flow
 		}
 	}
 
-	for id, check := range open {
-		if check {
-			max += valves[id].flow
-		}
+	for id, _ := range open {
+		max += valves[id].flow
 	}
 
+	memo[stateHash(location, minutes, open)] = max
 	return max
 }
 
 func part1(valves map[string]valve) int {
-	fmt.Println(valves)
-
-	open := make(map[string]bool)
+	open := make(map[string]int)
 	location := "AA"
-	memo := make(map[string]bool)
+	memo := make(map[string]int)
 
 	return findMaxFlow(valves, location, open, 0, memo)
 }
