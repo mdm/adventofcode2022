@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 )
 
 type position struct {
@@ -51,24 +52,18 @@ var rock4 = []position{{0, 0}, {1, 0}, {0, 1}, {1, 1}}
 
 var rocks = [][]position{rock0, rock1, rock2, rock3, rock4}
 
-func printMountain(mountain []position) {
-	height := 0
-	for _, m := range mountain {
-		if m.y > height {
-			height = m.y
-		}
-	}
-
-	fmt.Println(mountain)
-
+func printMountain(mountain map[position]bool, height int) {
 	for y := height; y >= 0; y-- {
 		row := []rune("|.......|")
-		for _, m := range mountain {
-			if m.y == y {
-				row[m.x+1] = '#'
+		for x := 0; x < 7; x++ {
+			_, ok := mountain[position{x, y}]
+			if ok {
+				row[x+1] = '#'
 			}
+
 		}
-		fmt.Println(string(row))
+		fmt.Print(string(row))
+		fmt.Println(y)
 	}
 }
 
@@ -81,7 +76,6 @@ func dropRocks(mountain map[position]bool, r int, j int, jet []int, count int) (
 	}
 
 	for i := 0; i < count; i++ {
-		// fmt.Println(i)
 		pos := position{2, height + 4}
 		step := 0
 		rock := rocks[r]
@@ -92,12 +86,10 @@ func dropRocks(mountain map[position]bool, r int, j int, jet []int, count int) (
 			oldPos := pos
 			switch step % 2 {
 			case 0:
-				// fmt.Println("JET", pos)
 				pos.x += jet[j]
 				j++
 				j = j % len(jet)
 			case 1:
-				// fmt.Println("DROP", pos)
 				pos.y -= 1
 			}
 
@@ -130,9 +122,6 @@ func dropRocks(mountain map[position]bool, r int, j int, jet []int, count int) (
 						}
 					}
 
-					// printMountain(mountain)
-					// fmt.Println()
-
 					break
 				}
 			}
@@ -155,69 +144,74 @@ func part1(jet []int) int {
 }
 
 func part2(jet []int) int {
+	memo := make(map[string]int)
+	rs := make(map[string]int)
+	js := make(map[string]int)
 	mountain := make(map[position]bool)
+	var columns []int
 	for i := 0; i < 7; i++ {
 		mountain[position{i, 0}] = true
+		columns = append(columns, 0)
 	}
+
+	hash := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(columns)), ","), "[]")
+	memo[hash] = 0
+
 	r := 0
 	j := 0
+	rs[hash] = r
+	js[hash] = j
 
-	// count := 1_000_000_000_000
-	period := 5 * len(jet)
-
-	var results, diffs []int
-	height, newMountain, newR, newJ := dropRocks(mountain, r, j, jet, period)
-	mountain = newMountain
-	r = newR
-	j = newJ
-	results = append(results, height)
-	fmt.Println("BAAM", results[0])
-	for i := 0; i < 10_000; i++ {
-		height, newMountain, newR, newJ := dropRocks(mountain, r, j, jet, period)
+	dropped := 0
+	height := 0
+	heights := []int{0}
+	for {
+		columns = nil
+		newHeight, newMountain, newR, newJ := dropRocks(mountain, r, j, jet, 1)
+		height = newHeight
 		mountain = newMountain
 		r = newR
 		j = newJ
-		results = append(results, height)
-		diff := results[i+1] - results[i]
-		diffs = append(diffs, diff)
-		fmt.Println(diff)
+		dropped++
+		heights = append(heights, height)
 
-		cycle := 0
-		for clen := 1; clen <= (len(diffs))/3; clen++ {
-			valid := true
-			for c := 0; c < clen; c++ {
-				if diffs[len(diffs)-1-c] != diffs[len(diffs)-1-c-clen] || diffs[len(diffs)-1-c] != diffs[len(diffs)-1-c-2*clen] {
-					valid = false
-					break
-				}
+		min := height
+		for i := 0; i < 7; i++ {
+			max := height
+			for max >= 0 && !mountain[position{i, max}] {
+				max--
 			}
 
-			if valid {
-				cycle = clen
-				break
+			if max < min {
+				min = max
 			}
+
+			columns = append(columns, max)
 		}
 
-		if cycle > 0 {
-			fmt.Println(i, cycle)
+		for i := 0; i < 7; i++ {
+			columns[i] -= min
+		}
+
+		hash = strings.Trim(strings.Join(strings.Fields(fmt.Sprint(columns)), ","), "[]")
+
+		_, ok := memo[hash]
+		if ok && rs[hash] == r && js[hash] == j {
 			break
 		}
+
+		memo[hash] = dropped
+		rs[hash] = r
+		js[hash] = j
 	}
 
-	// 300
-	// 306
-	// 303
-	// 303
-	// 301
-	// 306
-	// 301
-
-	return 0
+	quotient := (1_000_000_000_000 - memo[hash]) / (dropped - memo[hash])
+	remainder := (1_000_000_000_000 - memo[hash]) % (dropped - memo[hash])
+	return quotient*(heights[dropped]-heights[memo[hash]]) + heights[memo[hash]+remainder]
 }
 
 func main() {
 	jet := parse()
 	fmt.Println(part1(jet))
-	fmt.Println("------")
 	fmt.Println(part2(jet))
 }
