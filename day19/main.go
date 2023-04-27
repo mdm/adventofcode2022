@@ -93,27 +93,27 @@ func stateHash(minutes int, resources map[string]int, robots map[string]int) str
 	return hash
 }
 
-func optimizeBlueprint(minutes int, resources map[string]int, robots map[string]int, blueprint []recipe, memo map[string]int) int {
+func optimizeBlueprint(minutes int, limit int, resources map[string]int, robots map[string]int, blueprint []recipe, memo map[string]int) int {
 	hash := stateHash(minutes, resources, robots)
 	m, ok := memo[hash]
 	if ok {
 		return m
 	}
 
-	if minutes == 24 {
+	if minutes == limit {
 		return resources["geode"]
 	}
 
-	for k, r := range robots {
-		resources[k] += r
+	newResources := make(map[string]int)
+	for kind, amount := range resources {
+		newResources[kind] = amount
 	}
 
-	max := optimizeBlueprint(minutes+1, resources, robots, blueprint, memo)
-
 	for k, r := range robots {
-		resources[k] -= r
+		newResources[k] += r
 	}
 
+	max := 0
 	for _, b := range blueprint {
 		build := true
 		for _, i := range b.inputs {
@@ -125,28 +125,25 @@ func optimizeBlueprint(minutes int, resources map[string]int, robots map[string]
 
 		if build {
 			for _, i := range b.inputs {
-				resources[i.kind] -= i.amount
+				newResources[i.kind] -= i.amount
 			}
 			robots[b.output]++
 
-			for k, r := range robots {
-				resources[k] += r
-			}
-
-			geodes := optimizeBlueprint(minutes+1, resources, robots, blueprint, memo)
+			geodes := optimizeBlueprint(minutes+1, limit, newResources, robots, blueprint, memo)
 			if geodes > max {
 				max = geodes
 			}
 
-			for k, r := range robots {
-				resources[k] -= r
-			}
-
-			robots[b.output]--
 			for _, i := range b.inputs {
-				resources[i.kind] += i.amount
+				newResources[i.kind] += i.amount
 			}
+			robots[b.output]--
 		}
+	}
+
+	geodes := optimizeBlueprint(minutes+1, limit, newResources, robots, blueprint, memo)
+	if geodes > max {
+		max = geodes
 	}
 
 	memo[hash] = max
@@ -154,15 +151,13 @@ func optimizeBlueprint(minutes int, resources map[string]int, robots map[string]
 }
 
 func part1(blueprints [][]recipe) int {
-	fmt.Println(blueprints)
 	sum := 0
-
 	for i, blueprint := range blueprints {
 		resources := make(map[string]int)
 		robots := make(map[string]int)
 		robots["ore"] = 1
 		memo := make(map[string]int)
-		geodes := optimizeBlueprint(0, resources, robots, blueprint, memo)
+		geodes := optimizeBlueprint(0, 24, resources, robots, blueprint, memo)
 		fmt.Println(i+1, geodes)
 		sum += (i + 1) * geodes
 	}
