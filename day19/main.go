@@ -45,7 +45,6 @@ func parse() (blueprints [][]recipe) {
 			match := regex.FindStringSubmatch(r)
 
 			output := match[1]
-			// fmt.Println(output)
 
 			var inputs []resource
 			for i := 2; i < len(match); i += 3 {
@@ -61,7 +60,6 @@ func parse() (blueprints [][]recipe) {
 				input := resource{match[i+1], amount}
 				inputs = append(inputs, input)
 			}
-			// fmt.Println(inputs)
 
 			recipes = append(recipes, recipe{output, inputs})
 		}
@@ -93,7 +91,7 @@ func stateHash(minutes int, resources map[string]int, robots map[string]int) str
 	return hash
 }
 
-func optimizeBlueprint(minutes int, limit int, resources map[string]int, robots map[string]int, blueprint []recipe, memo map[string]int) int {
+func optimizeBlueprint(minutes int, limit int, resources map[string]int, robots map[string]int, maxRobots map[string]int, blueprint []recipe, memo map[string]int) int {
 	hash := stateHash(minutes, resources, robots)
 	m, ok := memo[hash]
 	if ok {
@@ -113,8 +111,10 @@ func optimizeBlueprint(minutes int, limit int, resources map[string]int, robots 
 		newResources[k] += r
 	}
 
-	max := 0
 	for _, b := range blueprint {
+		if b.output != "geode" {
+			continue
+		}
 		build := true
 		for _, i := range b.inputs {
 			if resources[i.kind] < i.amount {
@@ -129,7 +129,39 @@ func optimizeBlueprint(minutes int, limit int, resources map[string]int, robots 
 			}
 			robots[b.output]++
 
-			geodes := optimizeBlueprint(minutes+1, limit, newResources, robots, blueprint, memo)
+			geodes := optimizeBlueprint(minutes+1, limit, newResources, robots, maxRobots, blueprint, memo)
+
+			for _, i := range b.inputs {
+				newResources[i.kind] += i.amount
+			}
+			robots[b.output]--
+
+			memo[hash] = geodes
+			return geodes
+		}
+	}
+
+	max := 0
+	for _, b := range blueprint {
+		if b.output != "geode" && robots[b.output] >= maxRobots[b.output] {
+			continue
+		}
+
+		build := true
+		for _, i := range b.inputs {
+			if resources[i.kind] < i.amount {
+				build = false
+				break
+			}
+		}
+
+		if build {
+			for _, i := range b.inputs {
+				newResources[i.kind] -= i.amount
+			}
+			robots[b.output]++
+
+			geodes := optimizeBlueprint(minutes+1, limit, newResources, robots, maxRobots, blueprint, memo)
 			if geodes > max {
 				max = geodes
 			}
@@ -141,7 +173,7 @@ func optimizeBlueprint(minutes int, limit int, resources map[string]int, robots 
 		}
 	}
 
-	geodes := optimizeBlueprint(minutes+1, limit, newResources, robots, blueprint, memo)
+	geodes := optimizeBlueprint(minutes+1, limit, newResources, robots, maxRobots, blueprint, memo)
 	if geodes > max {
 		max = geodes
 	}
@@ -153,12 +185,19 @@ func optimizeBlueprint(minutes int, limit int, resources map[string]int, robots 
 func part1(blueprints [][]recipe) int {
 	sum := 0
 	for i, blueprint := range blueprints {
+		maxRobots := make(map[string]int)
+		for _, b := range blueprint {
+			for _, i := range b.inputs {
+				if maxRobots[i.kind] < i.amount {
+					maxRobots[i.kind] = i.amount
+				}
+			}
+		}
 		resources := make(map[string]int)
 		robots := make(map[string]int)
 		robots["ore"] = 1
 		memo := make(map[string]int)
-		geodes := optimizeBlueprint(0, 24, resources, robots, blueprint, memo)
-		fmt.Println(i+1, geodes)
+		geodes := optimizeBlueprint(0, 24, resources, robots, maxRobots, blueprint, memo)
 		sum += (i + 1) * geodes
 	}
 
@@ -166,7 +205,28 @@ func part1(blueprints [][]recipe) int {
 }
 
 func part2(blueprints [][]recipe) int {
-	return 0
+	product := 1
+	for i, blueprint := range blueprints {
+		if i == 3 {
+			break
+		}
+		maxRobots := make(map[string]int)
+		for _, b := range blueprint {
+			for _, i := range b.inputs {
+				if maxRobots[i.kind] < i.amount {
+					maxRobots[i.kind] = i.amount
+				}
+			}
+		}
+		resources := make(map[string]int)
+		robots := make(map[string]int)
+		robots["ore"] = 1
+		memo := make(map[string]int)
+		geodes := optimizeBlueprint(0, 32, resources, robots, maxRobots, blueprint, memo)
+		product *= geodes
+	}
+
+	return product
 }
 
 func main() {
