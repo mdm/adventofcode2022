@@ -9,13 +9,13 @@ import (
 	"strings"
 )
 
-type position struct {
+type vec2 struct {
 	x int
 	y int
 }
 
 type player struct {
-	position    position
+	position    vec2
 	orientation int
 }
 
@@ -87,7 +87,7 @@ func parse() (board []string, size int, human player, instructions []string) {
 		board[i] += strings.Repeat(" ", padding)
 	}
 
-	human = player{position{0, 0}, 0}
+	human = player{vec2{0, 0}, 0}
 	for x, tile := range board[0] {
 		if tile == '.' {
 			human.position.x = x
@@ -98,26 +98,81 @@ func parse() (board []string, size int, human player, instructions []string) {
 	return board, size, human, instructions
 }
 
+type vec3 struct {
+	x int
+	y int
+	z int
+}
+
+func (v *vec3) dot_product(other vec3) int {
+	return v.x*other.x + v.y*other.y + v.z*other.z
+}
+
+type mat33 struct {
+	rows []vec3
+}
+
+func (m *mat33) multiply_vec3(v vec3) vec3 {
+	return vec3{
+		m.rows[0].dot_product(v),
+		m.rows[1].dot_product(v),
+		m.rows[2].dot_product(v),
+	}
+}
+
+func (m *mat33) multiply_mat33(other mat33) mat33 {
+	return mat33{
+		[]vec3{
+			{
+				m.rows[0].dot_product(vec3{other.rows[0].x, other.rows[1].x, other.rows[2].x}),
+				m.rows[0].dot_product(vec3{other.rows[0].y, other.rows[1].y, other.rows[2].y}),
+				m.rows[0].dot_product(vec3{other.rows[0].z, other.rows[1].z, other.rows[2].z}),
+			},
+			{
+				m.rows[1].dot_product(vec3{other.rows[0].x, other.rows[1].x, other.rows[2].x}),
+				m.rows[1].dot_product(vec3{other.rows[0].y, other.rows[1].y, other.rows[2].y}),
+				m.rows[1].dot_product(vec3{other.rows[0].z, other.rows[1].z, other.rows[2].z}),
+			},
+			{
+				m.rows[2].dot_product(vec3{other.rows[0].x, other.rows[1].x, other.rows[2].x}),
+				m.rows[2].dot_product(vec3{other.rows[0].y, other.rows[1].y, other.rows[2].y}),
+				m.rows[2].dot_product(vec3{other.rows[0].z, other.rows[1].z, other.rows[2].z}),
+			},
+		},
+	}
+}
+
+func (m *mat33) transpose() mat33 {
+	return mat33{
+		[]vec3{
+			{m.rows[0].x, m.rows[1].x, m.rows[2].x},
+			{m.rows[0].y, m.rows[1].y, m.rows[2].y},
+			{m.rows[0].z, m.rows[1].z, m.rows[2].z},
+		},
+	}
+}
+
 type tile struct {
-	column   int
-	row      int
-	rotation int
+	column    int
+	row       int
+	transform mat33
 }
 
 type face struct {
-	posX int
-	posY int
-	posZ int
+	center  vec3
+	corners []vec3
 }
-
 type cube struct {
-	faces []face
-	tiles []*tile
+	faces     []vec3
+	transform mat33
+	tiles     []*tile
+	turns     []rune // to rotate back to start orientation
 }
 
 func (c *cube) findFace(x int, y int, z int) int {
 	for i, f := range c.faces {
-		if f.posX == x && f.posY == y && f.posZ == z {
+		tf := c.transform.multiply_vec3(f)
+		if tf.x == x && tf.y == y && tf.z == z {
 			return i
 		}
 	}
@@ -127,69 +182,85 @@ func (c *cube) findFace(x int, y int, z int) int {
 
 func (c *cube) rotateUp() cube {
 	nextCube := *c
-	nextCube.faces = nil
-	nextCube.faces = append(nextCube.faces, c.faces...)
 
-	for i, f := range c.faces {
-		nextCube.faces[i].posX = f.posX
-		nextCube.faces[i].posY = f.posZ
-		nextCube.faces[i].posZ = -f.posY
+	rotation := mat33{
+		[]vec3{
+			{1, 0, 0},
+			{0, 0, 1},
+			{0, -1, 0},
+		},
 	}
 
+	nextCube.transform = nextCube.transform.multiply_mat33(rotation)
 	return nextCube
 }
 
 func (c *cube) rotateDown() cube {
 	nextCube := *c
-	nextCube.faces = nil
-	nextCube.faces = append(nextCube.faces, c.faces...)
 
-	for i, f := range c.faces {
-		nextCube.faces[i].posX = f.posX
-		nextCube.faces[i].posY = -f.posZ
-		nextCube.faces[i].posZ = f.posY
+	rotation := mat33{
+		[]vec3{
+			{1, 0, 0},
+			{0, 0, -1},
+			{0, 1, 0},
+		},
 	}
 
+	nextCube.transform = nextCube.transform.multiply_mat33(rotation)
 	return nextCube
 }
 
 func (c *cube) rotateLeft() cube {
 	nextCube := *c
-	nextCube.faces = nil
-	nextCube.faces = append(nextCube.faces, c.faces...)
 
-	for i, f := range c.faces {
-		nextCube.faces[i].posX = -f.posZ
-		nextCube.faces[i].posY = f.posY
-		nextCube.faces[i].posZ = f.posX
+	rotation := mat33{
+		[]vec3{
+			{0, 0, -1},
+			{0, 1, 0},
+			{1, 0, 0},
+		},
 	}
 
+	nextCube.transform = nextCube.transform.multiply_mat33(rotation)
 	return nextCube
 }
 
 func (c *cube) rotateRight() cube {
 	nextCube := *c
-	nextCube.faces = nil
-	nextCube.faces = append(nextCube.faces, c.faces...)
 
-	for i, f := range c.faces {
-		nextCube.faces[i].posX = f.posZ
-		nextCube.faces[i].posY = f.posY
-		nextCube.faces[i].posZ = -f.posX
+	rotation := mat33{
+		[]vec3{
+			{0, 0, 1},
+			{0, 1, 0},
+			{-1, 0, 0},
+		},
 	}
 
+	nextCube.transform = nextCube.transform.multiply_mat33(rotation)
 	return nextCube
 }
 
 func makeCube(board []string, size int) cube {
-	startCube := cube{[]face{
-		{0, 0, 1},  // 1
-		{0, 1, 0},  // 2
-		{-1, 0, 0}, // 3
-		{1, 0, 0},  // 4
-		{0, -1, 0}, // 5
-		{0, 0, -1}, // 6
-	}, nil}
+	startCube := cube{
+		[]vec3{
+			// TODO: fix corners
+			{0, 0, 1},  // 1
+			{0, 1, 0},  // 2
+			{-1, 0, 0}, // 3
+			{1, 0, 0},  // 4
+			{0, -1, 0}, // 5
+			{0, 0, -1}, // 6
+		},
+		mat33{
+			[]vec3{
+				{1, 0, 0},
+				{0, 1, 0},
+				{0, 0, 1},
+			},
+		},
+		[]*tile{nil, nil, nil, nil, nil, nil},
+		nil,
+	}
 
 	startColumn := 0
 	startRow := 0
@@ -204,8 +275,13 @@ FindStart:
 		}
 	}
 
-	tiles := []*tile{nil, nil, nil, nil, nil, nil}
-	tiles[0] = &tile{startColumn, startRow, 0}
+	var transformRows []vec3
+	transformRows = append(transformRows, startCube.transform.rows...)
+	startCube.tiles[0] = &tile{
+		startColumn,
+		startRow,
+		mat33{transformRows},
+	}
 
 	filled := 0
 	var queue []cube
@@ -215,21 +291,27 @@ FindStart:
 		queue = queue[1:]
 
 		frontFace := current.findFace(0, 0, 1)
-		column := tiles[frontFace].column
-		row := tiles[frontFace].row
-		fmt.Println("*", frontFace, column, row, tiles)
+		column := current.tiles[frontFace].column
+		row := current.tiles[frontFace].row
+		fmt.Println("*", frontFace, column, row, current.tiles)
 		filled++
 
 		if filled == 6 {
-			current.tiles = tiles
 			return current
 		}
 
 		if (row+1) < len(board)/size && board[(row+1)*size][column*size] != ' ' {
 			nextCube := current.rotateUp()
 			nextFront := nextCube.findFace(0, 0, 1)
-			if tiles[nextFront] == nil {
-				tiles[nextFront] = &tile{column, row + 1, 0}
+			if current.tiles[nextFront] == nil {
+				var transformRows []vec3
+				transformRows = append(transformRows, nextCube.transform.rows...)
+
+				current.tiles[nextFront] = &tile{
+					column,
+					row + 1,
+					mat33{transformRows},
+				}
 				queue = append(queue, nextCube)
 			}
 		}
@@ -237,8 +319,15 @@ FindStart:
 		if (row-1) >= 0 && board[(row-1)*size][column*size] != ' ' {
 			nextCube := current.rotateDown()
 			nextFront := nextCube.findFace(0, 0, 1)
-			if tiles[nextFront] == nil {
-				tiles[nextFront] = &tile{column, row - 1, 0}
+			if current.tiles[nextFront] == nil {
+				var transformRows []vec3
+				transformRows = append(transformRows, nextCube.transform.rows...)
+
+				current.tiles[nextFront] = &tile{
+					column,
+					row - 1,
+					mat33{transformRows},
+				}
 				queue = append(queue, nextCube)
 			}
 		}
@@ -246,8 +335,15 @@ FindStart:
 		if (column+1) < len(board[0])/size && board[row*size][(column+1)*size] != ' ' {
 			nextCube := current.rotateLeft()
 			nextFront := nextCube.findFace(0, 0, 1)
-			if tiles[nextFront] == nil {
-				tiles[nextFront] = &tile{column + 1, row, 0}
+			if current.tiles[nextFront] == nil {
+				var transformRows []vec3
+				transformRows = append(transformRows, nextCube.transform.rows...)
+
+				current.tiles[nextFront] = &tile{
+					column + 1,
+					row,
+					mat33{transformRows},
+				}
 				queue = append(queue, nextCube)
 			}
 		}
@@ -255,8 +351,15 @@ FindStart:
 		if (column-1) >= 0 && board[row*size][(column-1)*size] != ' ' {
 			nextCube := current.rotateRight()
 			nextFront := nextCube.findFace(0, 0, 1)
-			if tiles[nextFront] == nil {
-				tiles[nextFront] = &tile{column - 1, row, 0}
+			if current.tiles[nextFront] == nil {
+				var transformRows []vec3
+				transformRows = append(transformRows, nextCube.transform.rows...)
+
+				current.tiles[nextFront] = &tile{
+					column - 1,
+					row,
+					mat33{transformRows},
+				}
 				queue = append(queue, nextCube)
 			}
 		}
@@ -333,6 +436,13 @@ func (p *player) move2d(board []string, distance int) {
 	}
 }
 
+func (p *player) move3d(board []string, size int, cube cube, distance int) {
+	i := 0
+	for i < distance {
+		break
+	}
+}
+
 func (p *player) turn(direction int) {
 	p.orientation = (p.orientation + direction + 4) % 4
 }
@@ -356,17 +466,33 @@ func part1(board []string, human player, instructions []string) int {
 	return (human.position.y+1)*1000 + (human.position.x+1)*4 + human.orientation
 }
 
-func part2(board []string, cube cube, human player, instructions []string) int {
+func part2(board []string, size int, cube cube, human player, instructions []string) int {
 	fmt.Println()
 	for i, t := range cube.tiles {
-		fmt.Println(i, t.column, t.row, t.rotation)
+		fmt.Println(i, t.column, t.row, t.transform)
 	}
-	return 0
+
+	for _, instruction := range instructions {
+		distance, err := strconv.Atoi(instruction)
+
+		if err == nil {
+			human.move3d(board, size, cube, distance)
+		} else {
+			switch instruction {
+			case "L":
+				human.turn(-1)
+			case "R":
+				human.turn(1)
+			}
+		}
+	}
+
+	return (human.position.y+1)*1000 + (human.position.x+1)*4 + human.orientation
 }
 
 func main() {
 	board, size, human, instructions := parse()
 	fmt.Println(part1(board, human, instructions))
 	cube := makeCube(board, size)
-	fmt.Println(part2(board, cube, human, instructions))
+	fmt.Println(part2(board, size, cube, human, instructions))
 }
