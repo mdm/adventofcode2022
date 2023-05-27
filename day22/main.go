@@ -15,6 +15,7 @@ type vec2 struct {
 }
 
 type player struct {
+	tile        vec2
 	position    vec2
 	orientation int
 }
@@ -87,9 +88,10 @@ func parse() (board []string, size int, human player, instructions []string) {
 		board[i] += strings.Repeat(" ", padding)
 	}
 
-	human = player{vec2{0, 0}, 0}
+	human = player{vec2{0, 0}, vec2{0, 0}, 0}
 	for x, tile := range board[0] {
 		if tile == '.' {
+			human.tile.x = x / size
 			human.position.x = x
 			break
 		}
@@ -191,7 +193,7 @@ func (c *cube) rotateUp() cube {
 		},
 	}
 
-	nextCube.transform = nextCube.transform.multiply_mat33(rotation)
+	nextCube.transform = rotation.multiply_mat33(nextCube.transform)
 	return nextCube
 }
 
@@ -206,7 +208,7 @@ func (c *cube) rotateDown() cube {
 		},
 	}
 
-	nextCube.transform = nextCube.transform.multiply_mat33(rotation)
+	nextCube.transform = rotation.multiply_mat33(nextCube.transform)
 	return nextCube
 }
 
@@ -221,7 +223,7 @@ func (c *cube) rotateLeft() cube {
 		},
 	}
 
-	nextCube.transform = nextCube.transform.multiply_mat33(rotation)
+	nextCube.transform = rotation.multiply_mat33(nextCube.transform)
 	return nextCube
 }
 
@@ -236,7 +238,7 @@ func (c *cube) rotateRight() cube {
 		},
 	}
 
-	nextCube.transform = nextCube.transform.multiply_mat33(rotation)
+	nextCube.transform = rotation.multiply_mat33(nextCube.transform)
 	return nextCube
 }
 
@@ -293,10 +295,17 @@ FindStart:
 		frontFace := current.findFace(0, 0, 1)
 		column := current.tiles[frontFace].column
 		row := current.tiles[frontFace].row
-		fmt.Println("*", frontFace, column, row, current.tiles)
 		filled++
 
 		if filled == 6 {
+			current.transform = mat33{
+				[]vec3{
+					{1, 0, 0},
+					{0, 1, 0},
+					{0, 0, 1},
+				},
+			}
+
 			return current
 		}
 
@@ -436,10 +445,181 @@ func (p *player) move2d(board []string, distance int) {
 	}
 }
 
-func (p *player) move3d(board []string, size int, cube cube, distance int) {
+func (p *player) move3d(board []string, size int, currentCube *cube, distance int) {
 	i := 0
 	for i < distance {
-		break
+		var nextPosition vec2
+		switch p.orientation {
+		case 0:
+			nextPosition.x = p.position.x + 1
+			nextPosition.y = p.position.y
+		case 1:
+			nextPosition.x = p.position.x
+			nextPosition.y = p.position.y + 1
+		case 2:
+			nextPosition.x = p.position.x - 1
+			nextPosition.y = p.position.y
+		case 3:
+			nextPosition.x = p.position.x
+			nextPosition.y = p.position.y - 1
+		}
+
+		var nextCube cube
+		rotated := false
+		nextTile := vec2{p.tile.x, p.tile.y}
+		nextOrientation := p.orientation
+
+		if nextPosition.x >= size {
+			nextCube = currentCube.rotateLeft()
+			rotated = true
+			front := nextCube.findFace(0, 0, 1)
+
+			frontTransform := nextCube.transform
+			tileTranspose := nextCube.tiles[front].transform.transpose()
+			transform := (&frontTransform).multiply_mat33(tileTranspose)
+
+			nextTile = vec2{nextCube.tiles[front].column, nextCube.tiles[front].row}
+			corner := (&transform).multiply_vec3(vec3{-1, 1, 2})
+			switch corner {
+			case vec3{-1, 1, 2}:
+				// checked
+				nextPosition.x = 0
+				nextPosition.y = nextPosition.y
+			case vec3{1, 1, 2}:
+				// checked
+				nextPosition.x = nextPosition.y
+				nextPosition.y = size - 1
+				nextOrientation = 3
+			case vec3{1, -1, 2}:
+				nextPosition.x = size - 1
+				nextPosition.y = size - 1 - nextPosition.y
+				nextOrientation = 2
+			case vec3{-1, -1, 2}:
+				// checked
+				nextPosition.x = size - 1 - nextPosition.y
+				nextPosition.y = 0
+				nextOrientation = 1
+			default:
+				log.Fatalln("unexpected tile orientation", corner)
+			}
+		}
+
+		if nextPosition.x < 0 {
+			nextCube = currentCube.rotateRight()
+			rotated = true
+			front := nextCube.findFace(0, 0, 1)
+
+			frontTransform := nextCube.transform
+			tileTranspose := nextCube.tiles[front].transform.transpose()
+			transform := (&frontTransform).multiply_mat33(tileTranspose)
+
+			nextTile = vec2{nextCube.tiles[front].column, nextCube.tiles[front].row}
+			corner := (&transform).multiply_vec3(vec3{-1, 1, 2})
+			switch corner {
+			case vec3{-1, 1, 2}:
+				// checked
+				nextPosition.x = size - 1
+				nextPosition.y = nextPosition.y
+			case vec3{1, 1, 2}:
+				nextPosition.x = nextPosition.y
+				nextPosition.y = 0
+				nextOrientation = 1
+			case vec3{1, -1, 2}:
+				nextPosition.x = 0
+				nextPosition.y = size - 1 - nextPosition.y
+				nextOrientation = 0
+			case vec3{-1, -1, 2}:
+				// checked
+				nextPosition.x = size - 1 - nextPosition.y
+				nextPosition.y = size - 1
+				nextOrientation = 3
+			default:
+				log.Fatalln("unexpected tile orientation", corner)
+			}
+		}
+
+		if nextPosition.y >= size {
+			nextCube = currentCube.rotateUp()
+			rotated = true
+			front := nextCube.findFace(0, 0, 1)
+
+			frontTransform := nextCube.transform
+			tileTranspose := nextCube.tiles[front].transform.transpose()
+			transform := (&frontTransform).multiply_mat33(tileTranspose)
+
+			nextTile = vec2{nextCube.tiles[front].column, nextCube.tiles[front].row}
+			corner := (&transform).multiply_vec3(vec3{-1, 1, 2})
+			switch corner {
+			case vec3{-1, 1, 2}:
+				// checked
+				nextPosition.x = nextPosition.x
+				nextPosition.y = 0
+			case vec3{1, 1, 2}:
+				nextPosition.y = size - 1 - nextPosition.x
+				nextPosition.x = 0
+				nextOrientation = 1
+			case vec3{1, -1, 2}:
+				nextPosition.x = size - 1 - nextPosition.x
+				nextPosition.y = size - 1
+				nextOrientation = 3
+			case vec3{-1, -1, 2}:
+				// checked
+				nextPosition.y = nextPosition.x
+				nextPosition.x = size - 1
+				nextOrientation = 2
+			default:
+				log.Fatalln("unexpected tile orientation", corner)
+			}
+		}
+
+		if nextPosition.y < 0 {
+			nextCube = currentCube.rotateDown()
+			rotated = true
+			front := nextCube.findFace(0, 0, 1)
+
+			frontTransform := nextCube.transform
+			tileTranspose := nextCube.tiles[front].transform.transpose()
+			transform := (&frontTransform).multiply_mat33(tileTranspose)
+
+			nextTile = vec2{nextCube.tiles[front].column, nextCube.tiles[front].row}
+			corner := (&transform).multiply_vec3(vec3{-1, 1, 2})
+			switch corner {
+			case vec3{-1, 1, 2}:
+				// checked
+				nextPosition.x = nextPosition.x
+				nextPosition.y = size - 1
+			case vec3{1, 1, 2}:
+				nextPosition.y = size - 1 - nextPosition.x
+				nextPosition.x = size - 1
+				nextOrientation = 2
+			case vec3{1, -1, 2}:
+				nextPosition.x = size - 1 - nextPosition.x
+				nextPosition.y = 0
+				nextOrientation = 1
+			case vec3{-1, -1, 2}:
+				// checked
+				nextPosition.y = nextPosition.x
+				nextPosition.x = 0
+				nextOrientation = 0
+			default:
+				log.Fatalln("unexpected tile orientation", corner)
+			}
+		}
+
+		x := nextTile.x*size + nextPosition.x
+		y := nextTile.y*size + nextPosition.y
+		if board[y][x] == '#' {
+			break
+		}
+
+		if rotated {
+			front := nextCube.findFace(0, 0, 1)
+			currentCube.transform = nextCube.tiles[front].transform
+		}
+		p.tile = nextTile
+		p.position = nextPosition
+		p.orientation = nextOrientation
+		i++
 	}
 }
 
@@ -467,16 +647,14 @@ func part1(board []string, human player, instructions []string) int {
 }
 
 func part2(board []string, size int, cube cube, human player, instructions []string) int {
-	fmt.Println()
-	for i, t := range cube.tiles {
-		fmt.Println(i, t.column, t.row, t.transform)
-	}
+	human.position.x %= size
+	human.position.y %= size
 
 	for _, instruction := range instructions {
 		distance, err := strconv.Atoi(instruction)
 
 		if err == nil {
-			human.move3d(board, size, cube, distance)
+			human.move3d(board, size, &cube, distance)
 		} else {
 			switch instruction {
 			case "L":
@@ -487,7 +665,9 @@ func part2(board []string, size int, cube cube, human player, instructions []str
 		}
 	}
 
-	return (human.position.y+1)*1000 + (human.position.x+1)*4 + human.orientation
+	x := human.tile.x*size + human.position.x
+	y := human.tile.y*size + human.position.y
+	return (y+1)*1000 + (x+1)*4 + human.orientation
 }
 
 func main() {
